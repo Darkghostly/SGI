@@ -1,0 +1,904 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>StockOS — Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<style>
+/* ── Tokens ───────────────────────────────────────────────── */
+:root {
+  --bg:        #F5F4F0;
+  --surface:   #FFFFFF;
+  --sidebar:   #17191E;
+  --border:    rgba(0,0,0,.08);
+  --ink:       #17191E;
+  --muted:     #8A8880;
+  --accent:    #2563EB;
+  --accent-bg: #EEF4FF;
+  --green:     #16A34A;
+  --green-bg:  #F0FDF4;
+  --red:       #DC2626;
+  --red-bg:    #FEF2F2;
+  --amber:     #D97706;
+  --amber-bg:  #FFFBEB;
+  --mono:      'DM Mono', monospace;
+  --sans:      'DM Sans', sans-serif;
+  --r:         10px;
+  --r-sm:      6px;
+}
+
+/* ── Reset ─────────────────────────────────────────────────── */
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{font-family:var(--sans);background:var(--bg);color:var(--ink);font-size:14px;display:flex}
+
+/* ── Sidebar ───────────────────────────────────────────────── */
+aside{
+  width:220px;min-height:100vh;background:var(--sidebar);
+  display:flex;flex-direction:column;flex-shrink:0;
+  padding:0 0 24px;position:sticky;top:0;height:100vh;overflow-y:auto;
+}
+.sb-logo{
+  display:flex;align-items:center;gap:10px;
+  padding:24px 20px 20px;border-bottom:1px solid rgba(255,255,255,.07);
+  margin-bottom:16px;
+}
+.sb-logo-mark{
+  width:30px;height:30px;border-radius:6px;
+  background:var(--accent);display:grid;place-items:center;flex-shrink:0;
+}
+.sb-logo-mark svg{width:16px;height:16px}
+.sb-logo-text{font-weight:600;font-size:.95rem;color:#fff;letter-spacing:.01em}
+.sb-logo-text span{color:rgba(255,255,255,.4)}
+
+.sb-section{padding:6px 12px 2px;font-size:.65rem;letter-spacing:.1em;
+  text-transform:uppercase;color:rgba(255,255,255,.25);font-family:var(--mono);margin-top:8px}
+
+.sb-link{
+  display:flex;align-items:center;gap:10px;
+  padding:9px 20px;color:rgba(255,255,255,.5);
+  text-decoration:none;font-size:.85rem;font-weight:400;
+  border-radius:0;transition:all .15s;cursor:pointer;
+  border:none;background:none;width:100%;text-align:left;
+}
+.sb-link svg{width:16px;height:16px;flex-shrink:0;opacity:.7}
+.sb-link:hover{color:rgba(255,255,255,.9);background:rgba(255,255,255,.06)}
+.sb-link.active{
+  color:#fff;background:rgba(255,255,255,.1);
+  border-left:2px solid var(--accent);padding-left:18px;
+}
+.sb-link.active svg{opacity:1}
+
+.sb-bottom{margin-top:auto;padding:12px;border-top:1px solid rgba(255,255,255,.07)}
+.sb-badge{
+  display:flex;align-items:center;gap:8px;padding:8px 10px;
+  background:rgba(255,255,255,.05);border-radius:var(--r-sm);
+}
+.sb-badge-dot{width:7px;height:7px;border-radius:50%;background:#22c55e;flex-shrink:0}
+.sb-badge span{font-size:.75rem;color:rgba(255,255,255,.4);font-family:var(--mono)}
+
+/* ── Main content ──────────────────────────────────────────── */
+main{flex:1;overflow-y:auto;padding:28px 32px;min-width:0}
+
+/* ── Topbar ────────────────────────────────────────────────── */
+.topbar{display:flex;align-items:center;justify-content:space-between;margin-bottom:28px}
+.topbar-title{font-size:1.35rem;font-weight:600;color:var(--ink)}
+.topbar-title span{color:var(--muted);font-weight:300}
+.topbar-right{display:flex;align-items:center;gap:10px}
+.topbar-date{font-family:var(--mono);font-size:.72rem;color:var(--ink);
+  background:var(--surface);border:1px solid var(--border);
+  padding:6px 12px;border-radius:var(--r-sm)}
+.btn-new{
+  font-family:var(--sans);font-size:.8rem;font-weight:500;
+  background:var(--accent);color:#fff;border:none;
+  padding:7px 16px;border-radius:var(--r-sm);cursor:pointer;
+  transition:opacity .15s;display:flex;align-items:center;gap:6px;
+}
+.btn-new:hover{opacity:.88}
+.btn-new svg{width:14px;height:14px}
+
+/* ── KPI grid ──────────────────────────────────────────────── */
+.kpi-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:24px}
+.kpi{
+  background:var(--surface);border:1px solid var(--border);
+  border-radius:var(--r);padding:18px 20px;position:relative;overflow:hidden;
+  animation:fadeUp .35s ease both;
+}
+.kpi:nth-child(1){animation-delay:.05s}
+.kpi:nth-child(2){animation-delay:.10s}
+.kpi:nth-child(3){animation-delay:.15s}
+.kpi:nth-child(4){animation-delay:.20s}
+.kpi-icon{
+  width:34px;height:34px;border-radius:var(--r-sm);
+  display:grid;place-items:center;margin-bottom:12px;
+}
+.kpi-icon svg{width:16px;height:16px}
+.kpi-label{font-size:.72rem;color:var(--muted);font-weight:400;margin-bottom:4px;letter-spacing:.01em}
+.kpi-value{font-size:1.55rem;font-weight:600;color:var(--ink);letter-spacing:-.02em;line-height:1}
+.kpi-sub{font-size:.72rem;color:var(--muted);margin-top:5px;font-family:var(--mono)}
+.kpi-accent{position:absolute;bottom:-8px;right:-8px;width:50px;height:50px;
+  border-radius:50%;opacity:.07}
+
+/* ── Grid de 2 colunas ─────────────────────────────────────── */
+.grid-2{display:grid;grid-template-columns:1.4fr 1fr;gap:16px;margin-bottom:16px}
+.grid-equal{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px}
+
+/* ── Card genérico ─────────────────────────────────────────── */
+.card{
+  background:var(--surface);border:1px solid var(--border);
+  border-radius:var(--r);padding:20px;
+  animation:fadeUp .35s ease both;animation-delay:.25s;
+}
+.card-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px}
+.card-title{font-size:.9rem;font-weight:600;color:var(--ink)}
+.card-badge{font-size:.68rem;font-family:var(--mono);
+  background:var(--bg);border:1px solid var(--border);
+  color:var(--muted);padding:3px 8px;border-radius:20px}
+
+/* ── Tabela ────────────────────────────────────────────────── */
+.table-wrap{overflow-x:auto;margin:0 -20px;padding:0 20px}
+table{width:100%;border-collapse:collapse}
+thead th{
+  font-size:.67rem;letter-spacing:.09em;text-transform:uppercase;
+  color:var(--muted);font-weight:500;padding:0 10px 10px;
+  text-align:left;white-space:nowrap;border-bottom:1px solid var(--border);
+}
+tbody tr{border-bottom:1px solid var(--border);transition:background .12s}
+tbody tr:last-child{border-bottom:none}
+tbody tr:hover{background:var(--bg)}
+tbody td{padding:11px 10px;font-size:.82rem;color:var(--ink)}
+.td-name{font-weight:500}
+.td-id{color:var(--muted);font-family:var(--mono);font-size:.75rem}
+.td-mono{font-family:var(--mono);font-size:.78rem}
+
+/* ── Pills / badges ────────────────────────────────────────── */
+.pill{
+  display:inline-flex;align-items:center;gap:4px;
+  font-size:.67rem;font-weight:500;letter-spacing:.03em;
+  padding:3px 8px;border-radius:20px;white-space:nowrap;
+}
+.pill-ok    {background:var(--green-bg);color:var(--green)}
+.pill-zero  {background:var(--red-bg);color:var(--red)}
+.pill-low   {background:var(--amber-bg);color:var(--amber)}
+.pill-cat   {background:var(--bg);color:var(--muted);border:1px solid var(--border)}
+
+/* ── Barra de progresso ────────────────────────────────────── */
+.bar-wrap{display:flex;align-items:center;gap:8px}
+.bar-track{flex:1;height:4px;background:var(--bg);border-radius:4px;overflow:hidden}
+.bar-fill{height:100%;border-radius:4px;transition:width .5s ease}
+
+/* ── Lista de atividade ────────────────────────────────────── */
+.activity-item{
+  display:flex;align-items:flex-start;gap:10px;
+  padding:9px 0;border-bottom:1px solid var(--border);
+}
+.activity-item:last-child{border-bottom:none}
+.activity-dot{
+  width:7px;height:7px;border-radius:50%;flex-shrink:0;margin-top:5px;
+}
+.activity-text{font-size:.8rem;color:var(--ink);line-height:1.4}
+.activity-time{font-size:.68rem;color:var(--muted);font-family:var(--mono);white-space:nowrap;margin-left:auto}
+
+/* ── Modal ─────────────────────────────────────────────────── */
+.modal-overlay{
+  position:fixed;inset:0;background:rgba(0,0,0,.45);
+  display:none;align-items:center;justify-content:center;z-index:200;
+  animation:fadeIn .15s ease;
+}
+.modal-overlay.open{display:flex}
+.modal{
+  background:var(--surface);border-radius:var(--r);
+  width:100%;max-width:480px;padding:28px;
+  animation:slideUp .2s ease;box-shadow:0 20px 60px rgba(0,0,0,.15);
+}
+.modal-title{font-size:1.05rem;font-weight:600;margin-bottom:4px}
+.modal-sub{font-size:.78rem;color:var(--muted);margin-bottom:22px}
+.form-row{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px}
+.form-row.full{grid-template-columns:1fr}
+.field label{display:block;font-size:.72rem;font-weight:500;color:var(--muted);
+  letter-spacing:.05em;text-transform:uppercase;margin-bottom:5px}
+.field input,.field select{
+  width:100%;background:var(--bg);border:1.5px solid var(--border);
+  border-radius:var(--r-sm);color:var(--ink);font-family:var(--sans);
+  font-size:.85rem;padding:8px 12px;outline:none;transition:border-color .15s;
+}
+.field input:focus,.field select:focus{border-color:var(--accent)}
+.modal-actions{display:flex;gap:8px;justify-content:flex-end;margin-top:20px}
+.btn-cancel{
+  font-family:var(--sans);font-size:.82rem;font-weight:500;
+  background:var(--bg);color:var(--muted);border:1px solid var(--border);
+  padding:8px 16px;border-radius:var(--r-sm);cursor:pointer;
+}
+.btn-save{
+  font-family:var(--sans);font-size:.82rem;font-weight:500;
+  background:var(--accent);color:#fff;border:none;
+  padding:8px 20px;border-radius:var(--r-sm);cursor:pointer;transition:opacity .15s;
+}
+.btn-save:hover{opacity:.88}
+
+/* ── Movimentação modal ────────────────────────────────────── */
+.mov-btns{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px}
+.mov-btn{
+  padding:12px;border-radius:var(--r);border:2px solid var(--border);
+  background:var(--bg);cursor:pointer;text-align:center;transition:all .15s;
+}
+.mov-btn.selected-entrada{border-color:var(--green);background:var(--green-bg)}
+.mov-btn.selected-saida  {border-color:var(--red);background:var(--red-bg)}
+.mov-btn-label{font-size:.78rem;font-weight:600;display:block;margin-top:4px}
+
+/* ── Toast ─────────────────────────────────────────────────── */
+#toast{
+  position:fixed;bottom:24px;right:24px;
+  background:var(--sidebar);color:#fff;
+  font-size:.78rem;font-family:var(--mono);
+  padding:10px 16px;border-radius:var(--r-sm);
+  opacity:0;transform:translateY(8px);transition:all .25s;
+  pointer-events:none;z-index:999;max-width:320px;
+  border-left:3px solid var(--accent);
+}
+#toast.show{opacity:1;transform:translateY(0)}
+#toast.err{border-left-color:var(--red)}
+#toast.ok{border-left-color:var(--green)}
+
+/* ── Animações ─────────────────────────────────────────────── */
+@keyframes fadeUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:translateY(0)}}
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+@keyframes slideUp{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}
+
+/* ── Responsive ────────────────────────────────────────────── */
+@media(max-width:1100px){.kpi-grid{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:800px){
+  aside{display:none}
+  .grid-2,.grid-equal{grid-template-columns:1fr}
+  main{padding:16px}
+}
+</style>
+</head>
+<body>
+
+<!-- ── SIDEBAR ─────────────────────────────────────────────── -->
+<aside>
+  <div class="sb-logo">
+    <div class="sb-logo-mark">
+      <svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round">
+        <path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/>
+        <polyline points="9 22 9 12 15 12 15 22"/>
+      </svg>
+    </div>
+    <span class="sb-logo-text">Stock<span>OS</span></span>
+  </div>
+
+  <div class="sb-section">Principal</div>
+  <button class="sb-link active" onclick="nav('dashboard',this)">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+    Dashboard
+  </button>
+  <button class="sb-link" onclick="nav('produtos',this)">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/></svg>
+    Produtos
+  </button>
+  <button class="sb-link" onclick="nav('movimentacao',this)">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><polyline points="17 1 21 5 17 9"/><path d="M3 11V9a4 4 0 014-4h14"/><polyline points="7 23 3 19 7 15"/><path d="M21 13v2a4 4 0 01-4 4H3"/></svg>
+    Movimentação
+  </button>
+  <button class="sb-link" onclick="nav('relatorio',this)">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+    Relatório
+  </button>
+
+  <div class="sb-section" style="margin-top:16px">Sistema</div>
+  <button class="sb-link" onclick="window.open('http://localhost:3000','_blank')">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 010 20M12 2a15.3 15.3 0 000 20"/></svg>
+    API (localhost)
+  </button>
+
+  <div class="sb-bottom">
+    <div class="sb-badge">
+      <div class="sb-badge-dot"></div>
+      <span>Node.js · porta 3000</span>
+    </div>
+  </div>
+</aside>
+
+<!-- ── CONTEÚDO PRINCIPAL ───────────────────────────────────── -->
+<main>
+
+  <!-- Topbar -->
+  <div class="topbar">
+    <div>
+      <div class="topbar-title" id="page-title">Dashboard <span>/ visão geral</span></div>
+    </div>
+    <div class="topbar-right">
+      <div class="topbar-date" id="data-atual"></div>
+      <button class="btn-new" onclick="abrirModal('cadastro')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+        Novo Produto
+      </button>
+    </div>
+  </div>
+
+  <!-- ── PÁGINA: DASHBOARD ──────────────────────────────────── -->
+  <div id="pg-dashboard">
+
+    <!-- KPIs -->
+    <div class="kpi-grid" id="kpi-area"></div>
+
+    <!-- Gráfico + lista rápida -->
+    <div class="grid-2">
+      <div class="card" style="animation-delay:.3s">
+        <div class="card-header">
+          <span class="card-title">Estoque por Categoria</span>
+          <span class="card-badge" id="chart-total-badge">— itens</span>
+        </div>
+        <div style="position:relative;height:220px">
+          <canvas id="barChart"></canvas>
+        </div>
+      </div>
+
+      <div class="card" style="animation-delay:.35s">
+        <div class="card-header">
+          <span class="card-title">Produtos Críticos</span>
+          <span class="card-badge">estoque ≤ 3</span>
+        </div>
+        <div id="criticos-lista"></div>
+      </div>
+    </div>
+
+    <!-- Últimas movimentações -->
+    <div class="card" style="animation-delay:.4s">
+      <div class="card-header">
+        <span class="card-title">Atividade Recente</span>
+        <span class="card-badge" id="mov-count-badge">— movs.</span>
+      </div>
+      <div id="activity-lista"></div>
+    </div>
+  </div>
+
+  <!-- ── PÁGINA: PRODUTOS ───────────────────────────────────── -->
+  <div id="pg-produtos" style="display:none">
+    <div class="card" style="animation-delay:0s">
+      <div class="card-header">
+        <span class="card-title">Todos os Produtos</span>
+        <button class="btn-new" onclick="abrirModal('cadastro')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+          Cadastrar
+        </button>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>#</th><th>Produto</th><th>Categoria</th>
+              <th>Qtd.</th><th>Preço</th><th>Valor Total</th><th>Status</th><th>Ações</th>
+            </tr>
+          </thead>
+          <tbody id="tb-produtos"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── MODAL: EDIÇÃO ──────────────────────────────────────── -->
+  <div class="modal-overlay" id="modal-edicao">
+    <div class="modal">
+      <div class="modal-title">Editar Produto</div>
+      <div class="modal-sub">Altere os campos e salve para atualizar o inventário.</div>
+      <input type="hidden" id="e-id"/>
+      <div class="form-row">
+        <div class="field"><label>Nome</label><input id="e-nome" type="text"/></div>
+        <div class="field"><label>Categoria</label><input id="e-cat" type="text"/></div>
+      </div>
+      <div class="form-row">
+        <div class="field"><label>Quantidade</label><input id="e-qty" type="number" min="0"/></div>
+        <div class="field"><label>Preço (R$)</label><input id="e-preco" type="number" step="0.01" min="0.01"/></div>
+      </div>
+      <div class="modal-actions">
+        <button class="btn-cancel" onclick="fecharModal('edicao')">Cancelar</button>
+        <button class="btn-save" onclick="salvarEdicao()">Salvar Alterações</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── PÁGINA: MOVIMENTAÇÃO ──────────────────────────────── -->
+  <div id="pg-movimentacao" style="display:none">
+    <div class="grid-equal">
+      <div class="card" style="animation-delay:0s">
+        <div class="card-header"><span class="card-title">Registrar Movimentação</span></div>
+
+        <div class="mov-btns">
+          <div class="mov-btn selected-entrada" id="btn-entrada" onclick="selecionarTipo('entrada')">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#16A34A" stroke-width="2" stroke-linecap="round"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>
+            <span class="mov-btn-label" style="color:var(--green)">Entrada</span>
+          </div>
+          <div class="mov-btn" id="btn-saida" onclick="selecionarTipo('saida')">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#DC2626" stroke-width="2" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><polyline points="19 12 12 19 5 12"/></svg>
+            <span class="mov-btn-label" style="color:var(--red)">Saída</span>
+          </div>
+        </div>
+
+        <div class="field" style="margin-bottom:12px">
+          <label>Produto</label>
+          <select id="m-produto"><option value="">Selecione...</option></select>
+        </div>
+        <div class="form-row">
+          <div class="field">
+            <label>Quantidade</label>
+            <input id="m-qty" type="number" min="1" placeholder="1"/>
+          </div>
+          <div class="field">
+            <label>Observação</label>
+            <input id="m-obs" type="text" placeholder="Opcional"/>
+          </div>
+        </div>
+        <button class="btn-save" style="width:100%;padding:10px" onclick="salvarMovimentacao()">
+          Confirmar Movimentação
+        </button>
+      </div>
+
+      <div class="card" style="animation-delay:.1s">
+        <div class="card-header">
+          <span class="card-title">Histórico</span>
+          <span class="card-badge" id="hist-badge">—</span>
+        </div>
+        <div id="hist-lista" style="max-height:360px;overflow-y:auto"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── PÁGINA: RELATÓRIO ─────────────────────────────────── -->
+  <div id="pg-relatorio" style="display:none">
+    <div class="card" style="animation-delay:0s">
+      <div class="card-header">
+        <span class="card-title">Relatório de Saldo</span>
+        <span class="card-badge">saldo atual</span>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>#</th><th>Produto</th><th>Categoria</th>
+              <th>Qtd. Atual</th><th>Preço Unit.</th>
+              <th>Valor em Estoque</th><th>Status</th>
+            </tr>
+          </thead>
+          <tbody id="tb-relatorio"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+</main>
+
+<!-- ── MODAL: CADASTRO ─────────────────────────────────────── -->
+<div class="modal-overlay" id="modal-cadastro">
+  <div class="modal">
+    <div class="modal-title">Cadastrar Produto</div>
+    <div class="modal-sub">Preencha os dados para adicionar ao inventário.</div>
+    <div class="form-row">
+      <div class="field">
+        <label>Nome</label>
+        <input id="c-nome" type="text" placeholder="Ex: Notebook Dell"/>
+      </div>
+      <div class="field">
+        <label>Categoria</label>
+        <input id="c-cat" type="text" placeholder="Ex: Eletrônicos"/>
+      </div>
+    </div>
+    <div class="form-row">
+      <div class="field">
+        <label>Quantidade Inicial</label>
+        <input id="c-qty" type="number" min="0" placeholder="0"/>
+      </div>
+      <div class="field">
+        <label>Preço Unitário (R$)</label>
+        <input id="c-preco" type="number" step="0.01" placeholder="0,00"/>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn-cancel" onclick="fecharModal('cadastro')">Cancelar</button>
+      <button class="btn-save" onclick="salvarCadastro()">Salvar Produto</button>
+    </div>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+// ============================================================
+//  CONFIGURAÇÃO
+//  Aponta para a API do servidor Node.js (inventario.js)
+// ============================================================
+const API = 'http://localhost:3000';
+
+// ── Estado da aplicação ─────────────────────────────────────
+let tipoMov = 'entrada';        // tipo selecionado no painel de movimentação
+let barChartInstance = null;    // instância do gráfico Chart.js
+
+// ── Utilitários ─────────────────────────────────────────────
+
+// Exibe mensagem de feedback temporária (toast)
+function toast(msg, tipo = 'ok') {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = 'show ' + tipo;
+  clearTimeout(el._t);
+  el._t = setTimeout(() => el.className = '', 3000);
+}
+
+// Formata valores monetários em reais: 1234.5 → "R$ 1.234,50"
+function brl(v) {
+  return Number(v).toLocaleString('pt-BR', { style:'currency', currency:'BRL' });
+}
+
+// Mostra a data atual formatada no topbar
+function atualizarData() {
+  document.getElementById('data-atual').textContent =
+    new Date().toLocaleDateString('pt-BR', { weekday:'short', day:'2-digit', month:'short', year:'numeric' });
+}
+atualizarData();
+
+// ── Navegação entre páginas ─────────────────────────────────
+
+// Troca a página visível e atualiza o link ativo da sidebar
+function nav(pg, btn) {
+  ['dashboard','produtos','movimentacao','relatorio'].forEach(id => {
+    document.getElementById('pg-' + id).style.display = id === pg ? 'block' : 'none';
+  });
+  document.querySelectorAll('.sb-link').forEach(l => l.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+
+  const titulos = {
+    dashboard: 'Dashboard <span>/ visão geral</span>',
+    produtos: 'Produtos <span>/ inventário</span>',
+    movimentacao: 'Movimentação <span>/ entrada e saída</span>',
+    relatorio: 'Relatório <span>/ saldo atual</span>',
+  };
+  document.getElementById('page-title').innerHTML = titulos[pg] || pg;
+
+  // Recarrega os dados da página aberta
+  if (pg === 'dashboard')     carregarDashboard();
+  if (pg === 'produtos')      carregarProdutos();
+  if (pg === 'movimentacao')  { carregarSelectMov(); carregarHistorico(); }
+  if (pg === 'relatorio')     carregarRelatorio();
+}
+
+// ── Modal ───────────────────────────────────────────────────
+function abrirModal(id)  { document.getElementById('modal-' + id).classList.add('open'); }
+function fecharModal(id) { document.getElementById('modal-' + id).classList.remove('open'); }
+// Fecha modal ao clicar no overlay
+document.getElementById('modal-cadastro').addEventListener('click', e => {
+  if (e.target === e.currentTarget) fecharModal('cadastro');
+});
+document.getElementById('modal-edicao').addEventListener('click', e => {
+  if (e.target === e.currentTarget) fecharModal('edicao');
+});
+
+// ============================================================
+//  FUNÇÃO 1 — Dashboard
+//  Carrega KPIs, gráfico de categorias e lista de críticos
+// ============================================================
+async function carregarDashboard() {
+  // Busca dados da API (GET /api/relatorio e GET /api/movimentacoes)
+  const [relRes, movRes] = await Promise.all([
+    fetch(API + '/api/relatorio'),
+    fetch(API + '/api/movimentacoes'),
+  ]);
+  const rel  = await relRes.json();
+  const movs = await movRes.json();
+
+  // ── KPIs ──────────────────────────────────────────────────
+  const totalProd    = rel.length;
+  const totalUnid    = rel.reduce((s, p) => s + p.quantidade, 0);
+  const valorTotal   = rel.reduce((s, p) => s + parseFloat(p.valorTotal), 0);
+  const qtdZero      = rel.filter(p => p.estoqueZero).length;
+
+  document.getElementById('kpi-area').innerHTML = `
+    <div class="kpi">
+      <div class="kpi-icon" style="background:#EEF4FF">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#2563EB" stroke-width="2" stroke-linecap="round">
+          <path d="M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z"/>
+        </svg>
+      </div>
+      <div class="kpi-label">Total de Produtos</div>
+      <div class="kpi-value">${totalProd}</div>
+      <div class="kpi-sub">SKUs cadastrados</div>
+      <div class="kpi-accent" style="background:#2563EB"></div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-icon" style="background:#F0FDF4">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#16A34A" stroke-width="2" stroke-linecap="round">
+          <line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/>
+        </svg>
+      </div>
+      <div class="kpi-label">Valor em Estoque</div>
+      <div class="kpi-value" style="font-size:1.2rem">${brl(valorTotal)}</div>
+      <div class="kpi-sub">total inventariado</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-icon" style="background:#FFFBEB">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#D97706" stroke-width="2" stroke-linecap="round">
+          <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+        </svg>
+      </div>
+      <div class="kpi-label">Unidades em Estoque</div>
+      <div class="kpi-value">${totalUnid}</div>
+      <div class="kpi-sub">unidades disponíveis</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-icon" style="background:${qtdZero > 0 ? '#FEF2F2' : '#F0FDF4'}">
+        <svg viewBox="0 0 24 24" fill="none" stroke="${qtdZero > 0 ? '#DC2626' : '#16A34A'}" stroke-width="2" stroke-linecap="round">
+          <circle cx="12" cy="12" r="10"/>
+          ${qtdZero > 0
+            ? '<line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/>'
+            : '<polyline points="20 6 9 17 4 12"/>'}
+        </svg>
+      </div>
+      <div class="kpi-label">Estoque Zero</div>
+      <div class="kpi-value" style="color:${qtdZero > 0 ? 'var(--red)' : 'var(--green)'}">${qtdZero}</div>
+      <div class="kpi-sub">${qtdZero > 0 ? 'produtos sem estoque' : 'tudo em estoque'}</div>
+    </div>
+  `;
+
+  // ── Gráfico de categorias (Chart.js) ──────────────────────
+  // Agrupa produtos por categoria para exibir no bar chart
+  const porCat = rel.reduce((acc, p) => {
+    acc[p.categoria] = (acc[p.categoria] || 0) + p.quantidade;
+    return acc;
+  }, {});
+
+  document.getElementById('chart-total-badge').textContent = totalProd + ' itens';
+  const ctx = document.getElementById('barChart').getContext('2d');
+
+  if (barChartInstance) barChartInstance.destroy(); // evita duplicação
+
+  barChartInstance = new Chart(ctx, {
+    type: 'bar',
+    data: {
+      labels: Object.keys(porCat),
+      datasets: [{
+        label: 'Unidades',
+        data: Object.values(porCat),
+        backgroundColor: '#2563EB',
+        borderRadius: 5,
+        borderSkipped: false,
+      }],
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: { callbacks: { label: ctx => ctx.parsed.y + ' un.' } },
+      },
+      scales: {
+        x: { grid: { display: false }, ticks: { font: { family: 'DM Mono', size: 11 }, color: '#8A8880' } },
+        y: { grid: { color: 'rgba(0,0,0,.05)' }, ticks: { font: { family: 'DM Mono', size: 11 }, color: '#8A8880', precision: 0 }, border: { display: false } },
+      },
+    },
+  });
+
+  // ── Produtos críticos (qtd ≤ 3) ───────────────────────────
+  const criticos = rel.filter(p => p.quantidade <= 3).sort((a, b) => a.quantidade - b.quantidade);
+  const maxQtd   = Math.max(...rel.map(p => p.quantidade), 1);
+
+  document.getElementById('criticos-lista').innerHTML = criticos.length ? criticos.map(p => `
+    <div style="margin-bottom:12px">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;margin-bottom:4px">
+        <span style="font-size:.82rem;font-weight:500">${p.nome}</span>
+        <span class="pill ${p.estoqueZero ? 'pill-zero' : 'pill-low'}">${p.quantidade} un.</span>
+      </div>
+      <div class="bar-wrap">
+        <div class="bar-track">
+          <div class="bar-fill" style="width:${Math.max(2,(p.quantidade/maxQtd)*100)}%;background:${p.estoqueZero ? 'var(--red)' : 'var(--amber)'}"></div>
+        </div>
+      </div>
+    </div>
+  `).join('') : '<div style="text-align:center;padding:28px;color:var(--muted);font-size:.8rem">✓ Nenhum produto crítico</div>';
+
+  // ── Atividade recente ──────────────────────────────────────
+  document.getElementById('mov-count-badge').textContent = movs.length + ' movs.';
+  const recentes = [...movs].reverse().slice(0, 6);
+
+  document.getElementById('activity-lista').innerHTML = recentes.length ? recentes.map(m => `
+    <div class="activity-item">
+      <div class="activity-dot" style="background:${m.tipo === 'entrada' ? 'var(--green)' : 'var(--red)'}"></div>
+      <div class="activity-text">
+        <strong>${m.tipo === 'entrada' ? '+' : '-'}${m.quantidade}</strong> un. de
+        <strong>${m.nomeProduto}</strong>
+        ${m.observacao !== '—' ? `— <span style="color:var(--muted)">${m.observacao}</span>` : ''}
+      </div>
+      <div class="activity-time">${m.data}</div>
+    </div>
+  `).join('') : '<div style="text-align:center;padding:28px;color:var(--muted);font-size:.8rem">Nenhuma movimentação ainda.</div>';
+}
+
+// ============================================================
+//  FUNÇÃO 2 — Produtos (tabela completa)
+// ============================================================
+async function carregarProdutos() {
+  const res  = await fetch(API + '/api/produtos');
+  const list = await res.json();
+  const tbody = document.getElementById('tb-produtos');
+
+  tbody.innerHTML = list.length ? list.map(p => `
+    <tr>
+      <td class="td-id">#${p.id}</td>
+      <td class="td-name">${p.nome}</td>
+      <td><span class="pill pill-cat">${p.categoria}</span></td>
+      <td class="td-mono" style="color:${p.quantidade === 0 ? 'var(--red)' : p.quantidade <= 3 ? 'var(--amber)' : 'var(--ink)'};font-weight:${p.quantidade <= 3 ? 600 : 400}">
+        ${p.quantidade}
+      </td>
+      <td class="td-mono">${brl(p.preco)}</td>
+      <td class="td-mono">${brl(p.quantidade * p.preco)}</td>
+      <td><span class="pill ${p.quantidade === 0 ? 'pill-zero' : p.quantidade <= 3 ? 'pill-low' : 'pill-ok'}">
+        ${p.quantidade === 0 ? '⚠ Zero' : p.quantidade <= 3 ? '↓ Baixo' : '✓ OK'}
+      </span></td>
+      <td>
+        <button
+          onclick="abrirEdicao(${p.id},'${p.nome.replace(/'/g,"\\'")}','${p.categoria.replace(/'/g,"\\'")}',${p.quantidade},${p.preco})"
+          style="font-size:.75rem;font-weight:500;padding:4px 10px;border-radius:var(--r-sm);
+                 background:var(--accent-bg);color:var(--accent);border:1px solid rgba(37,99,235,.2);cursor:pointer;">
+          ✎ Editar
+        </button>
+      </td>
+    </tr>
+  `).join('') : `<tr><td colspan="8" style="text-align:center;padding:32px;color:var(--muted)">Nenhum produto cadastrado.</td></tr>`;
+}
+
+// ── Funções de edição ────────────────────────────────────────
+
+function abrirEdicao(id, nome, categoria, quantidade, preco) {
+  document.getElementById('e-id').value   = id;
+  document.getElementById('e-nome').value = nome;
+  document.getElementById('e-cat').value  = categoria;
+  document.getElementById('e-qty').value  = quantidade;
+  document.getElementById('e-preco').value = preco;
+  abrirModal('edicao');
+}
+
+async function salvarEdicao() {
+  const id = document.getElementById('e-id').value;
+  const dados = {
+    nome:       document.getElementById('e-nome').value,
+    categoria:  document.getElementById('e-cat').value,
+    quantidade: document.getElementById('e-qty').value,
+    preco:      document.getElementById('e-preco').value,
+  };
+
+  try {
+    const res  = await fetch(API + '/api/produtos/' + id, {
+      method:'PUT', headers:{'Content-Type':'application/json'}, body:JSON.stringify(dados),
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.erro);
+
+    fecharModal('edicao');
+    toast('Produto "' + json.nome + '" atualizado!', 'ok');
+    carregarProdutos();
+    carregarDashboard();
+  } catch(e) { toast(e.message, 'err'); }
+}
+
+// ============================================================
+//  FUNÇÃO 3 — Cadastro (via modal)
+// ============================================================
+async function salvarCadastro() {
+  const dados = {
+    nome:       document.getElementById('c-nome').value,
+    categoria:  document.getElementById('c-cat').value,
+    quantidade: document.getElementById('c-qty').value,
+    preco:      document.getElementById('c-preco').value,
+  };
+
+  try {
+    const res  = await fetch(API + '/api/produtos', {
+      method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(dados),
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.erro);
+
+    fecharModal('cadastro');
+    toast('Produto "' + json.nome + '" cadastrado!', 'ok');
+    ['c-nome','c-cat','c-qty','c-preco'].forEach(id => document.getElementById(id).value = '');
+    carregarDashboard();
+  } catch(e) { toast(e.message, 'err'); }
+}
+
+// ============================================================
+//  FUNÇÃO 4 — Movimentação (entrada / saída)
+// ============================================================
+function selecionarTipo(tipo) {
+  tipoMov = tipo;
+  document.getElementById('btn-entrada').className = 'mov-btn' + (tipo === 'entrada' ? ' selected-entrada' : '');
+  document.getElementById('btn-saida').className   = 'mov-btn' + (tipo === 'saida'   ? ' selected-saida'   : '');
+}
+
+async function carregarSelectMov() {
+  const res  = await fetch(API + '/api/produtos');
+  const list = await res.json();
+  const sel  = document.getElementById('m-produto');
+  sel.innerHTML = '<option value="">Selecione...</option>' +
+    list.map(p => `<option value="${p.id}">${p.nome} — estoque: ${p.quantidade}</option>`).join('');
+}
+
+async function salvarMovimentacao() {
+  const dados = {
+    produtoId:  document.getElementById('m-produto').value,
+    tipo:       tipoMov,
+    quantidade: document.getElementById('m-qty').value,
+    observacao: document.getElementById('m-obs').value,
+  };
+
+  try {
+    const res  = await fetch(API + '/api/movimentacoes', {
+      method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(dados),
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.erro);
+
+    toast((tipoMov === 'entrada' ? '↑ Entrada' : '↓ Saída') + ' de ' + json.quantidade + ' un. registrada!', 'ok');
+    document.getElementById('m-qty').value = '';
+    document.getElementById('m-obs').value = '';
+    carregarSelectMov();
+    carregarHistorico();
+  } catch(e) { toast(e.message, 'err'); }
+}
+
+async function carregarHistorico() {
+  const res  = await fetch(API + '/api/movimentacoes');
+  const list = await res.json();
+  document.getElementById('hist-badge').textContent = list.length + ' registros';
+
+  document.getElementById('hist-lista').innerHTML = list.length
+    ? [...list].reverse().map(m => `
+        <div class="activity-item">
+          <div class="activity-dot" style="background:${m.tipo === 'entrada' ? 'var(--green)' : 'var(--red)'}"></div>
+          <div class="activity-text">
+            <span class="pill ${m.tipo === 'entrada' ? 'pill-ok' : 'pill-zero'}" style="font-size:.65rem">
+              ${m.tipo === 'entrada' ? '↑ Entrada' : '↓ Saída'}
+            </span>
+            <strong style="margin-left:4px">${m.nomeProduto}</strong>
+            · ${m.quantidade} un.
+            ${m.observacao !== '—' ? `<span style="color:var(--muted)"> · ${m.observacao}</span>` : ''}
+          </div>
+          <div class="activity-time">${m.data}</div>
+        </div>
+      `).join('')
+    : '<div style="text-align:center;padding:28px;color:var(--muted);font-size:.8rem">Nenhuma movimentação.</div>';
+}
+
+// ============================================================
+//  FUNÇÃO 5 — Relatório (tabela detalhada)
+// ============================================================
+async function carregarRelatorio() {
+  const res  = await fetch(API + '/api/relatorio');
+  const list = await res.json();
+  const tbody = document.getElementById('tb-relatorio');
+
+  tbody.innerHTML = list.map(p => `
+    <tr style="${p.estoqueZero ? 'background:#FEF2F2' : ''}">
+      <td class="td-id">#${p.id}</td>
+      <td class="td-name">${p.nome}</td>
+      <td><span class="pill pill-cat">${p.categoria}</span></td>
+      <td class="td-mono" style="font-weight:600;color:${p.estoqueZero ? 'var(--red)' : 'var(--green)'}">
+        ${p.quantidade}
+      </td>
+      <td class="td-mono">${brl(p.preco)}</td>
+      <td class="td-mono" style="font-weight:500">${brl(p.valorTotal)}</td>
+      <td>
+        <span class="pill ${p.estoqueZero ? 'pill-zero' : 'pill-ok'}">
+          ${p.estoqueZero ? '⚠ Estoque Zero' : '✓ Em estoque'}
+        </span>
+      </td>
+    </tr>
+  `).join('');
+}
+
+// ── Inicialização ────────────────────────────────────────────
+carregarDashboard();
+</script>
+</body>
+</html>
