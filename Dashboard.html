@@ -7,6 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
 <style>
 /* ── Tokens ───────────────────────────────────────────────── */
 :root {
@@ -218,6 +219,14 @@ tbody td{padding:11px 10px;font-size:.82rem;color:var(--ink)}
   padding:8px 20px;border-radius:var(--r-sm);cursor:pointer;transition:opacity .15s;
 }
 .btn-save:hover{opacity:.88}
+
+/* ── Modal Relatorio Detalhado ─────────────────────────────── */
+.modal-lg { max-width: 800px; width: 95%; max-height: 90vh; display: flex; flex-direction: column; }
+.modal-lg-body { overflow-y: auto; padding-right: 4px; }
+.modal-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 24px; }
+.modal-card { background: var(--bg); border: 1px solid var(--border); padding: 18px; border-radius: var(--r-sm); }
+.modal-card-label { font-size: .72rem; color: var(--muted); text-transform: uppercase; margin-bottom: 6px; letter-spacing: .05em; font-weight: 500;}
+.modal-card-val { font-size: 1.25rem; font-weight: 600; color: var(--ink); }
 
 /* ── Movimentação modal ────────────────────────────────────── */
 .mov-btns{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px}
@@ -452,8 +461,14 @@ tbody td{padding:11px 10px;font-size:.82rem;color:var(--ink)}
   <div id="pg-relatorio" style="display:none">
     <div class="card" style="animation-delay:0s">
       <div class="card-header">
-        <span class="card-title">Relatório de Saldo</span>
-        <span class="card-badge">saldo atual</span>
+        <div style="display:flex;align-items:center;gap:10px">
+          <span class="card-title">Relatório de Saldo</span>
+          <span class="card-badge">saldo atual</span>
+        </div>
+        <button class="btn-new" onclick="exportarPDF()" style="background:var(--ink);color:var(--surface)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          Exportar PDF
+        </button>
       </div>
       <div class="table-wrap">
         <table>
@@ -461,7 +476,7 @@ tbody td{padding:11px 10px;font-size:.82rem;color:var(--ink)}
             <tr>
               <th>#</th><th>Produto</th><th>Categoria</th>
               <th>Qtd. Atual</th><th>Preço Unit.</th>
-              <th>Valor em Estoque</th><th>Status</th>
+              <th>Valor em Estoque</th><th>Status</th><th>Ações</th>
             </tr>
           </thead>
           <tbody id="tb-relatorio"></tbody>
@@ -500,6 +515,55 @@ tbody td{padding:11px 10px;font-size:.82rem;color:var(--ink)}
     <div class="modal-actions">
       <button class="btn-cancel" onclick="fecharModal('cadastro')">Cancelar</button>
       <button class="btn-save" onclick="salvarCadastro()">Salvar Produto</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── MODAL: RELATÓRIO DETALHADO ───────────────────────────── -->
+<div class="modal-overlay" id="modal-relatorio" onclick="if(event.target === this) fecharModal('relatorio')">
+  <div class="modal modal-lg">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:20px">
+      <div>
+        <div class="modal-title" id="mdl-rel-nome">Nome do Produto</div>
+        <div class="modal-sub" id="mdl-rel-sub" style="margin-bottom:0">#ID • Categoria</div>
+      </div>
+      <button class="btn-cancel" onclick="fecharModal('relatorio')">Fechar</button>
+    </div>
+    
+    <div class="modal-lg-body">
+      <div class="modal-cards">
+        <div class="modal-card">
+          <div class="modal-card-label">Estoque Atual</div>
+          <div class="modal-card-val" id="mdl-rel-qtd">0 un.</div>
+        </div>
+        <div class="modal-card">
+          <div class="modal-card-label">Preço Unitário</div>
+          <div class="modal-card-val" id="mdl-rel-preco">R$ 0,00</div>
+        </div>
+        <div class="modal-card">
+          <div class="modal-card-label">Valor Total do Estoque</div>
+          <div class="modal-card-val" id="mdl-rel-total">R$ 0,00</div>
+        </div>
+      </div>
+
+      <div class="card-header" style="margin-bottom:12px">
+        <span class="card-title">Histórico de Movimentações</span>
+      </div>
+      <div class="table-wrap" style="border:1px solid var(--border);border-radius:var(--r-sm);overflow:hidden">
+        <table>
+          <thead style="background:var(--bg)">
+            <tr>
+              <th>Data</th>
+              <th>Tipo</th>
+              <th>Qtd.</th>
+              <th>Observação</th>
+            </tr>
+          </thead>
+          <tbody id="tb-rel-movimentacoes">
+            <!-- populado via JS -->
+          </tbody>
+        </table>
+      </div>
     </div>
   </div>
 </div>
@@ -893,11 +957,123 @@ async function carregarRelatorio() {
           ${p.estoqueZero ? '⚠ Estoque Zero' : '✓ Em estoque'}
         </span>
       </td>
+      <td>
+        <button
+          onclick="abrirRelatorioDetalhado(${p.id})"
+          style="font-size:.75rem;font-weight:500;padding:4px 10px;border-radius:var(--r-sm);
+                 background:var(--bg);color:var(--ink);border:1px solid var(--border);cursor:pointer;">
+          Detalhes
+        </button>
+      </td>
     </tr>
   `).join('');
 }
 
-// ── Inicialização ────────────────────────────────────────────
+// ============================================================
+//  FUNÇÃO 5.1 — Relatório Detalhado
+// ============================================================
+async function abrirRelatorioDetalhado(idProduto) {
+  try {
+    const [prodRes, movRes] = await Promise.all([
+      fetch(API + '/api/relatorio'),
+      fetch(API + '/api/movimentacoes')
+    ]);
+    const produtos = await prodRes.json();
+    const movimentacoes = await movRes.json();
+
+    const produto = produtos.find(p => p.id === idProduto);
+    if (!produto) throw new Error('Produto não encontrado');
+
+    const movsProd = movimentacoes.filter(m => m.produtoId == idProduto);
+
+    document.getElementById('mdl-rel-nome').textContent = produto.nome;
+    document.getElementById('mdl-rel-sub').textContent  = `#${produto.id} • ${produto.categoria}`;
+    document.getElementById('mdl-rel-qtd').textContent  = produto.quantidade + ' un.';
+    document.getElementById('mdl-rel-qtd').style.color  = produto.estoqueZero ? 'var(--red)' : 'var(--ink)';
+    document.getElementById('mdl-rel-preco').textContent = brl(produto.preco);
+    
+    const total = produto.valorTotal ? produto.valorTotal : (produto.quantidade * produto.preco);
+    document.getElementById('mdl-rel-total').textContent = brl(total);
+
+    const tbody = document.getElementById('tb-rel-movimentacoes');
+    if (movsProd.length > 0) {
+      tbody.innerHTML = movsProd.reverse().map(m => `
+        <tr>
+          <td class="td-mono">${m.data}</td>
+          <td>
+            <span class="pill ${m.tipo === 'entrada' ? 'pill-ok' : 'pill-zero'}">
+              ${m.tipo === 'entrada' ? '↑ Entrada' : '↓ Saída'}
+            </span>
+          </td>
+          <td class="td-mono" style="font-weight:600">${m.quantidade} un.</td>
+          <td>${m.observacao}</td>
+        </tr>
+      `).join('');
+    } else {
+      tbody.innerHTML = `<tr><td colspan="4" style="text-align:center;padding:28px;color:var(--muted)">Nenhuma movimentação registrada.</td></tr>`;
+    }
+
+    abrirModal('relatorio');
+  } catch(e) {
+    toast('Erro ao abrir relatório: ' + e.message, 'err');
+  }
+}
+
+// ============================================================
+//  FUNÇÃO 6 — Exportar PDF
+// ============================================================
+async function exportarPDF() {
+  const main = document.querySelector('main');
+  const opt = {
+    margin:       10,
+    filename:     'Dashboard_Relatorio_Estoque.pdf',
+    image:        { type: 'jpeg', quality: 0.98 },
+    html2canvas:  { scale: 2, backgroundColor: '#F5F4F0' },
+    jsPDF:        { unit: 'mm', format: 'a3', orientation: 'landscape' }
+  };
+  
+  const dashOrig = document.getElementById('pg-dashboard').style.display;
+  const relOrig  = document.getElementById('pg-relatorio').style.display;
+  
+  document.getElementById('pg-dashboard').style.display = 'block';
+  document.getElementById('pg-relatorio').style.display = 'block';
+  
+  const botoes = main.querySelectorAll('button');
+  botoes.forEach(b => b.style.display = 'none');
+  main.style.background = '#F5F4F0';
+
+
+  const animatedNodes = main.querySelectorAll('.kpi, .card');
+  animatedNodes.forEach(node => {
+    node.style.animation = 'none';
+    node.style.opacity = '1';
+  });
+
+  if (typeof barChartInstance !== 'undefined' && barChartInstance) {
+    barChartInstance.resize();
+    barChartInstance.update('none');
+  }
+
+
+  await new Promise(resolve => setTimeout(resolve, 300));
+
+  html2pdf().set(opt).from(main).save().then(() => {
+    document.getElementById('pg-dashboard').style.display = dashOrig;
+    document.getElementById('pg-relatorio').style.display = relOrig;
+    botoes.forEach(b => b.style.display = '');
+    main.style.background = '';
+    animatedNodes.forEach(node => node.style.animation = '');
+    toast('PDF exportado com sucesso!', 'ok');
+  }).catch(e => {
+    document.getElementById('pg-dashboard').style.display = dashOrig;
+    document.getElementById('pg-relatorio').style.display = relOrig;
+    botoes.forEach(b => b.style.display = '');
+    main.style.background = '';
+    animatedNodes.forEach(node => node.style.animation = '');
+    toast('Erro ao exportar PDF', 'err');
+  });
+}
+
 carregarDashboard();
 </script>
 </body>
