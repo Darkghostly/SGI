@@ -555,6 +555,9 @@ const paginaHTML = `<!DOCTYPE html>
     <div class="logo-text">Stock<span>OS</span></div>
   </div>
   <div class="header-tag">v1.0 · em memória</div>
+  <button onclick="resetarBanco()" style="background: rgba(255,77,109,.12); color: var(--red); border: 1px solid rgba(255,77,109,.25); font-family: var(--mono); font-size: .68rem; padding: 4px 12px; border-radius: 20px; cursor: pointer; transition: background .2s; margin-left: 10px;">
+    ⚠ Limpar Banco
+  </button>
 </header>
 
 <!-- ── Conteúdo principal ─────────────────────────────────── -->
@@ -1000,6 +1003,31 @@ const paginaHTML = `<!DOCTYPE html>
     \`).join('');
   }
 
+  // Envia requisição DELETE para resetar o banco de dados e IDs
+  async function resetarBanco() {
+    if (!confirm('ATENÇÃO: Isso excluirá TODOS os produtos e movimentações, e reiniciará os IDs a partir do 1. Deseja continuar?')) return;
+
+    try {
+      const res = await fetch(API + '/api/database/reset', {
+        method: 'DELETE'
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.erro);
+
+      toast('Banco de dados limpo e IDs reiniciados!', 'success');
+      
+      // Recarrega os dados da aba atualmente ativa
+      const activeTabBtn = document.querySelector('.tab-btn.active');
+      if (activeTabBtn) {
+        activeTabBtn.click();
+      } else {
+        carregarProdutos();
+      }
+    } catch (e) {
+      toast('Erro: ' + e.message, 'error');
+    }
+  }
+
   // ── Inicialização ────────────────────────────────────────────
   // Carrega os dados da aba inicial ao abrir a página
   carregarProdutos();
@@ -1075,28 +1103,30 @@ const servidor = http.createServer(async (req, res) => {
     }
 
     // ── GET /api/movimentacoes — lista todas as movs. ──────
-    // NOVA ROTA: GET /api/produtos/:id (Buscar apenas um item específico sem idRegex)
-        if (path.startsWith('/api/produtos/') && req.method === 'GET') {
-            // Divide a URL por '/' e pega o último elemento (que é o ID)
-            const partes = path.split('/');
-            const id = partes[partes.length - 1];
+    if (pathname === '/api/movimentacoes' && metodo === 'GET') {
+      const movs = await listarMovimentacoes();
+      return responderJSON(res, 200, movs);
+    }
 
-            try {
-                // Executa a busca no banco de dados filtrando pelo ID extraído
-                const [rows] = await db.execute('SELECT * FROM produtos WHERE id = ?', [id]);
-                
-                if (rows.length > 0) {
-                    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
-                    return res.end(JSON.stringify(rows[0]));
-                } else {
-                    res.writeHead(404, { 'Content-Type': 'application/json; charset=utf-8' });
-                    return res.end(JSON.stringify({ erro: 'Produto não encontrado no banco.' }));
-                }
-            } catch (err) {
-                res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
-                return res.end(JSON.stringify({ erro: 'Erro interno ao buscar o produto.' }));
-            }
+    // ── GET /api/produtos/:id — busca um produto específico ──
+    const matchObter = pathname.match(/^\/api\/produtos\/(\d+)$/);
+    if (matchObter && metodo === 'GET') {
+      const id = matchObter[1];
+      try {
+        const [rows] = await db.query('SELECT * FROM produtos WHERE id = ?', [parseInt(id, 10)]);
+        if (rows.length > 0) {
+          const produto = {
+            ...rows[0],
+            preco: parseFloat(rows[0].preco)
+          };
+          return responderJSON(res, 200, produto);
+        } else {
+          return responderJSON(res, 404, { erro: 'Produto não encontrado.' });
         }
+      } catch (err) {
+        return responderJSON(res, 500, { erro: 'Erro interno ao buscar o produto.' });
+      }
+    }
 
     // ── POST /api/movimentacoes — registra entrada/saída ───
     if (pathname === '/api/movimentacoes' && metodo === 'POST') {
@@ -1126,6 +1156,22 @@ const servidor = http.createServer(async (req, res) => {
       const id = matchDeletar[1];
       const resultado = await excluirProduto(id);
       return responderJSON(res, 200, resultado);
+    }
+
+    // ── DELETE /api/database/reset — limpa o banco de dados e reseta IDs ──
+    if (pathname === '/api/database/reset' && metodo === 'DELETE') {
+      const conn = await db.getConnection();
+      try {
+        await conn.query('SET FOREIGN_KEY_CHECKS = 0');
+        await conn.query('TRUNCATE TABLE movimentacoes');
+        await conn.query('TRUNCATE TABLE produtos');
+        await conn.query('SET FOREIGN_KEY_CHECKS = 1');
+        return responderJSON(res, 200, { sucesso: true });
+      } catch (err) {
+        return responderJSON(res, 500, { erro: 'Erro ao limpar banco de dados: ' + err.message });
+      } finally {
+        conn.release();
+      }
     }
 
     // ── 404 — rota não encontrada ──────────────────────────
