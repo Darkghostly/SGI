@@ -1,166 +1,246 @@
 /**
  * ============================================================
  *  SISTEMA DE GESTÃO DE INVENTÁRIO
- *  Projeto Acadêmico — Node.js puro (sem dependências externas)
- *  Armazenamento: memória | Interface: web (HTML/CSS/JS)
+ *  Projeto Acadêmico — Node.js com MySQL
+ *  Armazenamento: MySQL (sgi_db) | Interface: web (HTML/CSS/JS)
  * ============================================================
  *
  *  Como executar:
- *    node inventario.js
+ *    node Inventario.js
  *  Depois abra no navegador:
  *    http://localhost:3000
  * ============================================================
  */
 
 const http = require('http');
-const url  = require('url');
+const mysql = require('mysql2/promise');
 
 // ============================================================
-//  MODELAGEM DE DADOS
-//  Usamos classes para representar cada entidade do sistema.
-//  Em um projeto real, essas classes mapeariam tabelas de banco.
+//  CONFIGURAÇÃO E CONEXÃO DO BANCO DE DADOS MYSQL
 // ============================================================
+const db = mysql.createPool({
+  host: 'localhost',
+  user: 'root',
+  password: 'admin',
+  database: 'sgi_db',
+  waitForConnections: true,
+  connectionLimit: 10,
+  queueLimit: 0
+});
 
-/**
- * Classe Produto — representa um item do inventário.
- * Campos: id, nome, categoria, quantidade, preco, criadoEm
- */
-class Produto {
-  constructor(nome, categoria, quantidade, preco) {
-    this.id        = ++contadorId;                  // ID auto-incrementado
-    this.nome      = nome.trim();
-    this.categoria = categoria.trim();
-    this.quantidade = parseInt(quantidade, 10);     // sempre número inteiro
-    this.preco     = parseFloat(preco);             // sempre número decimal
-    this.criadoEm  = new Date().toLocaleDateString('pt-BR');
-  }
-}
-
-/**
- * Classe Movimentacao — registra cada entrada ou saída de estoque.
- * Associada a um Produto pelo campo produtoId.
- */
-class Movimentacao {
-  constructor(produtoId, nomeProduto, tipo, quantidade, observacao) {
-    this.id          = ++contadorMovId;
-    this.produtoId   = produtoId;
-    this.nomeProduto = nomeProduto;
-    this.tipo        = tipo;        // 'entrada' ou 'saida'
-    this.quantidade  = parseInt(quantidade, 10);
-    this.observacao  = observacao || '—';
-    this.data        = new Date().toLocaleString('pt-BR');
-  }
-}
+// Testar a conexão com o banco de dados na inicialização
+db.getConnection()
+  .then(conn => {
+    console.log('Conectado ao Banco de Dados MySQL sgi_db');
+    conn.release();
+    popularBancoSeVazio();
+  })
+  .catch(err => {
+    console.error('Erro ao conectar ao Banco de Dados MySQL:', err.message);
+  });
 
 // ============================================================
-//  BANCO DE DADOS EM MEMÓRIA
-//  Arrays simples funcionam como "tabelas".
-//  Os dados são perdidos ao reiniciar o servidor.
-// ============================================================
-let produtos       = [];   // "tabela" de produtos
-let movimentacoes  = [];   // "tabela" de movimentações
-let contadorId     = 0;    // simula AUTO_INCREMENT de banco
-let contadorMovId  = 0;
-
-// ============================================================
-//  CAMADA DE NEGÓCIO (Business Logic)
-//  Funções puras que encapsulam as regras do sistema.
+//  CAMADA DE NEGÓCIO (Business Logic com MySQL)
 // ============================================================
 
 /**
  * Cadastra um novo produto no inventário.
- * Valida os campos obrigatórios antes de persistir.
+ * Valida os campos obrigatórios antes de persistir no banco de dados.
  */
-function cadastrarProduto(dados) {
+async function cadastrarProduto(dados) {
   const { nome, categoria, quantidade, preco } = dados;
 
   // Validação básica — todos os campos são obrigatórios
   if (!nome || !categoria || quantidade === undefined || !preco) {
     throw new Error('Todos os campos são obrigatórios.');
   }
-  if (isNaN(quantidade) || parseInt(quantidade) < 0) {
+  const qty = parseInt(quantidade, 10);
+  if (isNaN(qty) || qty < 0) {
     throw new Error('Quantidade deve ser um número ≥ 0.');
   }
-  if (isNaN(preco) || parseFloat(preco) <= 0) {
+  const prc = parseFloat(preco);
+  if (isNaN(prc) || prc <= 0) {
     throw new Error('Preço deve ser um número positivo.');
   }
 
-  const produto = new Produto(nome, categoria, quantidade, preco);
-  produtos.push(produto);   // "INSERT INTO produtos ..."
-  return produto;
+  const criadoEm = new Date().toLocaleDateString('pt-BR');
+
+  const [result] = await db.query(
+    'INSERT INTO produtos (nome, categoria, quantidade, preco, criadoEm) VALUES (?, ?, ?, ?, ?)',
+    [nome.trim(), categoria.trim(), qty, prc, criadoEm]
+  );
+
+  return {
+    id: result.insertId,
+    nome: nome.trim(),
+    categoria: categoria.trim(),
+    quantidade: qty,
+    preco: prc,
+    criadoEm
+  };
 }
 
 /**
- * Registra uma movimentação de estoque (entrada ou saída).
- * Atualiza diretamente a quantidade do produto afetado.
+ * Registra uma movimentação de estoque (entrada ou saída) no banco.
+ * Executa as validações e a atualização em uma transação segura.
  */
-function registrarMovimentacao(produtoId, tipo, quantidade, observacao) {
-  // Busca o produto pelo ID — equivale a "SELECT * WHERE id = ?"
-  const produto = produtos.find(p => p.id === parseInt(produtoId));
-  if (!produto) throw new Error('Produto não encontrado.');
+async function registrarMovimentacao(produtoId, tipo, quantidade, observacao) {
+  const conn = await db.getConnection();
+  try {
+    await conn.beginTransaction();
 
-  const qtd = parseInt(quantidade, 10);
-  if (isNaN(qtd) || qtd <= 0) throw new Error('Quantidade deve ser positiva.');
-  if (!['entrada', 'saida'].includes(tipo)) throw new Error('Tipo inválido.');
+    // 1. Busca o produto com bloqueio de leitura para evitar inconsistência de saldo (FOR UPDATE)
+    const [prods] = await conn.query('SELECT * FROM produtos WHERE id = ? FOR UPDATE', [parseInt(produtoId, 10)]);
+    if (prods.length === 0) {
+      throw new Error('Produto não encontrado.');
+    }
+    const produto = prods[0];
 
-  // Regra de negócio: não permite saldo negativo
-  if (tipo === 'saida' && produto.quantidade < qtd) {
-    throw new Error(`Estoque insuficiente. Disponível: ${produto.quantidade} unidade(s).`);
+    const qty = parseInt(quantidade, 10);
+    if (isNaN(qty) || qty <= 0) {
+      throw new Error('Quantidade deve ser positiva.');
+    }
+    if (!['entrada', 'saida'].includes(tipo)) {
+      throw new Error('Tipo inválido.');
+    }
+
+    // Regra de negócio: não permite saldo negativo
+    if (tipo === 'saida' && produto.quantidade < qty) {
+      throw new Error(`Estoque insuficiente. Disponível: ${produto.quantidade} unidade(s).`);
+    }
+
+    // 2. Atualiza o saldo do produto no banco
+    const novaQtd = produto.quantidade + (tipo === 'entrada' ? qty : -qty);
+    await conn.query('UPDATE produtos SET quantidade = ? WHERE id = ?', [novaQtd, produto.id]);
+
+    // 3. Registra o histórico da movimentação no banco
+    const dataMov = new Date().toLocaleString('pt-BR');
+    const obs = (observacao || '').trim() || '—';
+    const [result] = await conn.query(
+      'INSERT INTO movimentacoes (produtoId, tipo, quantidade, observacao, data) VALUES (?, ?, ?, ?, ?)',
+      [produto.id, tipo, qty, obs, dataMov]
+    );
+
+    await conn.commit();
+
+    return {
+      id: result.insertId,
+      produtoId: produto.id,
+      nomeProduto: produto.nome,
+      tipo,
+      quantidade: qty,
+      observacao: obs,
+      data: dataMov
+    };
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
   }
-
-  // Atualiza o saldo do produto
-  produto.quantidade += (tipo === 'entrada' ? qtd : -qtd);
-
-  // Registra o histórico da movimentação
-  const mov = new Movimentacao(produto.id, produto.nome, tipo, qtd, observacao);
-  movimentacoes.push(mov);
-  return mov;
 }
 
 /**
- * Edita um produto existente pelo ID.
- * Permite atualizar nome, categoria, preço e quantidade diretamente.
+ * Edita um produto existente pelo ID no banco.
  */
-function editarProduto(id, dados) {
-  const produto = produtos.find(p => p.id === parseInt(id));
-  if (!produto) throw new Error('Produto não encontrado.');
-
+async function editarProduto(id, dados) {
   const { nome, categoria, quantidade, preco } = dados;
   if (!nome || !categoria) throw new Error('Nome e categoria são obrigatórios.');
-  if (isNaN(quantidade) || parseInt(quantidade) < 0) throw new Error('Quantidade inválida.');
-  if (isNaN(preco) || parseFloat(preco) <= 0) throw new Error('Preço inválido.');
+  const qty = parseInt(quantidade, 10);
+  if (isNaN(qty) || qty < 0) throw new Error('Quantidade inválida.');
+  const prc = parseFloat(preco);
+  if (isNaN(prc) || prc <= 0) throw new Error('Preço inválido.');
 
-  // Atualiza apenas os campos editáveis — o ID e criadoEm permanecem intactos
-  produto.nome      = nome.trim();
-  produto.categoria = categoria.trim();
-  produto.quantidade = parseInt(quantidade, 10);
-  produto.preco     = parseFloat(preco);
-  return produto;
+  const [result] = await db.query(
+    'UPDATE produtos SET nome = ?, categoria = ?, quantidade = ?, preco = ? WHERE id = ?',
+    [nome.trim(), categoria.trim(), qty, prc, parseInt(id, 10)]
+  );
+
+  if (result.affectedRows === 0) {
+    throw new Error('Produto não encontrado.');
+  }
+
+  return {
+    id: parseInt(id, 10),
+    nome: nome.trim(),
+    categoria: categoria.trim(),
+    quantidade: qty,
+    preco: prc
+  };
 }
 
 /**
- * Gera o relatório de inventário.
- * Retorna todos os produtos com campos calculados:
- *   - valorTotal: quantidade × preço
- *   - estoqueZero: flag para destacar produtos sem estoque
+ * Exclui um produto e seu histórico de movimentações no banco.
  */
-function gerarRelatorio() {
-  return produtos.map(p => ({
+async function excluirProduto(id) {
+  const conn = await db.getConnection();
+  try {
+    await conn.beginTransaction();
+
+    // 1. Remove as movimentações associadas ao produto
+    await conn.query('DELETE FROM movimentacoes WHERE produtoId = ?', [parseInt(id, 10)]);
+
+    // 2. Remove o produto em si
+    const [result] = await conn.query('DELETE FROM produtos WHERE id = ?', [parseInt(id, 10)]);
+    if (result.affectedRows === 0) {
+      throw new Error('Produto não encontrado.');
+    }
+
+    await conn.commit();
+    return { sucesso: true };
+  } catch (err) {
+    await conn.rollback();
+    throw err;
+  } finally {
+    conn.release();
+  }
+}
+
+/**
+ * Lista todas as movimentações de estoque, fazendo JOIN para obter o nome do produto.
+ */
+async function listarMovimentacoes() {
+  const [rows] = await db.query(
+    `SELECT m.id, m.produtoId, p.nome AS nomeProduto, m.tipo, m.quantidade, m.observacao, m.data 
+     FROM movimentacoes m 
+     JOIN produtos p ON m.produtoId = p.id`
+  );
+  return rows;
+}
+
+/**
+ * Gera o relatório de inventário com campos calculados.
+ */
+async function gerarRelatorio() {
+  const [rows] = await db.query('SELECT * FROM produtos');
+  return rows.map(p => ({
     ...p,
-    valorTotal:  (p.quantidade * p.preco).toFixed(2),
+    preco: parseFloat(p.preco),
+    valorTotal: (p.quantidade * parseFloat(p.preco)).toFixed(2),
     estoqueZero: p.quantidade === 0,
   }));
 }
 
 // ============================================================
 //  DADOS INICIAIS (seed)
-//  Pré-popula o sistema com exemplos para facilitar a demo.
+//  Pré-popula o sistema com exemplos para facilitar a demo se estiver vazio.
 // ============================================================
-cadastrarProduto({ nome: 'Notebook Dell Inspiron', categoria: 'Eletrônicos',  quantidade: 8,  preco: 3499.90 });
-cadastrarProduto({ nome: 'Mouse Logitech MX',      categoria: 'Periféricos',  quantidade: 0,  preco: 149.90  });
-cadastrarProduto({ nome: 'Cadeira Gamer DXRacer',  categoria: 'Mobiliário',   quantidade: 3,  preco: 1290.00 });
-cadastrarProduto({ nome: 'Monitor LG 27"',         categoria: 'Eletrônicos',  quantidade: 0,  preco: 1599.00 });
-cadastrarProduto({ nome: 'Teclado Mecânico HyperX',categoria: 'Periféricos',  quantidade: 12, preco: 399.90  });
+async function popularBancoSeVazio() {
+  try {
+    const [rows] = await db.query('SELECT COUNT(*) AS count FROM produtos');
+    if (rows[0].count === 0) {
+      console.log('Populando banco de dados com dados iniciais...');
+      await cadastrarProduto({ nome: 'Notebook Dell Inspiron', categoria: 'Eletrônicos',  quantidade: 8,  preco: 3499.90 });
+      await cadastrarProduto({ nome: 'Mouse Logitech MX',      categoria: 'Periféricos',  quantidade: 0,  preco: 149.90  });
+      await cadastrarProduto({ nome: 'Cadeira Gamer DXRacer',  categoria: 'Mobiliário',   quantidade: 3,  preco: 1290.00 });
+      await cadastrarProduto({ nome: 'Monitor LG 27"',         categoria: 'Eletrônicos',  quantidade: 0,  preco: 1599.00 });
+      await cadastrarProduto({ nome: 'Teclado Mecânico HyperX',categoria: 'Periféricos',  quantidade: 12, preco: 399.90  });
+      console.log('Dados iniciais inseridos com sucesso!');
+    }
+  } catch (err) {
+    console.error('Erro ao popular banco de dados:', err.message);
+  }
+}
 
 // ============================================================
 //  INTERFACE WEB (HTML/CSS/JS embutido no servidor)
@@ -734,6 +814,12 @@ const paginaHTML = `<!DOCTYPE html>
                    font-family:var(--mono);font-size:.68rem;padding:4px 10px;border-radius:4px;cursor:pointer;">
             ✎ editar
           </button>
+          <button
+            onclick="excluirProduto(\${p.id})"
+            style="background:rgba(255,77,109,.12);color:var(--red);border:1px solid rgba(255,77,109,.3);
+                   font-family:var(--mono);font-size:.68rem;padding:4px 10px;border-radius:4px;cursor:pointer;margin-left:5px;">
+            🗑 excluir
+          </button>
         </td>
       </tr>
     \`).join('');
@@ -741,7 +827,7 @@ const paginaHTML = `<!DOCTYPE html>
 
   // ── Funções do modal de edição ───────────────────────────────
 
-  // Abre o modal preenchido com os dados atuais do produto
+  // Abre o modal preenchido com os dados antigos do produto
   function abrirEdicao(id, nome, categoria, quantidade, preco) {
     document.getElementById('e-id').value        = id;
     document.getElementById('e-nome').value      = nome;
@@ -776,6 +862,24 @@ const paginaHTML = `<!DOCTYPE html>
 
       fecharEdicao();
       toast('Produto "' + json.nome + '" atualizado!', 'success');
+      carregarProdutos();
+    } catch (e) {
+      toast('Erro: ' + e.message, 'error');
+    }
+  }
+
+  // Envia DELETE /api/produtos/:id para excluir o produto
+  async function excluirProduto(id) {
+    if (!confirm('Deseja realmente excluir este produto e todo o seu histórico de movimentações?')) return;
+
+    try {
+      const res = await fetch(API + '/api/produtos/' + id, {
+        method: 'DELETE'
+      });
+      const json = await res.json();
+      if (!res.ok) throw new Error(json.erro);
+
+      toast('Produto excluído com sucesso!', 'success');
       carregarProdutos();
     } catch (e) {
       toast('Erro: ' + e.message, 'error');
@@ -933,12 +1037,13 @@ function responderJSON(res, status, dados) {
 
 // Cria e configura o servidor HTTP
 const servidor = http.createServer(async (req, res) => {
-  const { pathname } = url.parse(req.url, true);
+  const parsedUrl = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+  const pathname = parsedUrl.pathname;
   const metodo = req.method;
 
   // Cabeçalhos CORS — permite que o frontend faça requisições à API
   res.setHeader('Access-Control-Allow-Origin',  '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
   // Preflight CORS (requisição OPTIONS do navegador)
@@ -954,31 +1059,38 @@ const servidor = http.createServer(async (req, res) => {
 
     // ── GET /api/produtos — lista todos os produtos ────────
     if (pathname === '/api/produtos' && metodo === 'GET') {
-      return responderJSON(res, 200, produtos);
+      const [prods] = await db.query('SELECT * FROM produtos');
+      const formatados = prods.map(p => ({
+        ...p,
+        preco: parseFloat(p.preco)
+      }));
+      return responderJSON(res, 200, formatados);
     }
 
     // ── POST /api/produtos — cadastra novo produto ─────────
     if (pathname === '/api/produtos' && metodo === 'POST') {
       const dados   = await lerBody(req);
-      const produto = cadastrarProduto(dados);           // chama a camada de negócio
+      const produto = await cadastrarProduto(dados);           // chama a camada de negócio
       return responderJSON(res, 201, produto);
     }
 
     // ── GET /api/movimentacoes — lista todas as movs. ──────
     if (pathname === '/api/movimentacoes' && metodo === 'GET') {
-      return responderJSON(res, 200, movimentacoes);
+      const movs = await listarMovimentacoes();
+      return responderJSON(res, 200, movs);
     }
 
     // ── POST /api/movimentacoes — registra entrada/saída ───
     if (pathname === '/api/movimentacoes' && metodo === 'POST') {
       const { produtoId, tipo, quantidade, observacao } = await lerBody(req);
-      const mov = registrarMovimentacao(produtoId, tipo, quantidade, observacao);
+      const mov = await registrarMovimentacao(produtoId, tipo, quantidade, observacao);
       return responderJSON(res, 201, mov);
     }
 
     // ── GET /api/relatorio — relatório de saldo atual ──────
     if (pathname === '/api/relatorio' && metodo === 'GET') {
-      return responderJSON(res, 200, gerarRelatorio());
+      const rel = await gerarRelatorio();
+      return responderJSON(res, 200, rel);
     }
 
     // ── PUT /api/produtos/:id — edita um produto existente ──
@@ -986,8 +1098,16 @@ const servidor = http.createServer(async (req, res) => {
     if (matchEditar && metodo === 'PUT') {
       const id     = matchEditar[1];
       const dados  = await lerBody(req);
-      const produto = editarProduto(id, dados);
+      const produto = await editarProduto(id, dados);
       return responderJSON(res, 200, produto);
+    }
+
+    // ── DELETE /api/produtos/:id — exclui um produto existente ──
+    const matchDeletar = pathname.match(/^\/api\/produtos\/(\d+)$/);
+    if (matchDeletar && metodo === 'DELETE') {
+      const id = matchDeletar[1];
+      const resultado = await excluirProduto(id);
+      return responderJSON(res, 200, resultado);
     }
 
     // ── 404 — rota não encontrada ──────────────────────────

@@ -807,6 +807,12 @@ async function carregarProdutos() {
                  background:var(--accent-bg);color:var(--accent);border:1px solid rgba(37,99,235,.2);cursor:pointer;">
           ✎ Editar
         </button>
+        <button
+          onclick="excluirProduto(${p.id})"
+          style="font-size:.75rem;font-weight:500;padding:4px 10px;border-radius:var(--r-sm);
+                 background:var(--red-bg);color:var(--red);border:1px solid rgba(220,38,38,.2);cursor:pointer;margin-left:5px;">
+          🗑 Excluir
+        </button>
       </td>
     </tr>
   `).join('') : `<tr><td colspan="8" style="text-align:center;padding:32px;color:var(--muted)">Nenhum produto cadastrado.</td></tr>`;
@@ -841,6 +847,22 @@ async function salvarEdicao() {
 
     fecharModal('edicao');
     toast('Produto "' + json.nome + '" atualizado!', 'ok');
+    carregarProdutos();
+    carregarDashboard();
+  } catch(e) { toast(e.message, 'err'); }
+}
+
+async function excluirProduto(id) {
+  if (!confirm('Deseja realmente excluir este produto e todo o seu histórico de movimentações?')) return;
+
+  try {
+    const res  = await fetch(API + '/api/produtos/' + id, {
+      method: 'DELETE'
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.erro);
+
+    toast('Produto excluído com sucesso!', 'ok');
     carregarProdutos();
     carregarDashboard();
   } catch(e) { toast(e.message, 'err'); }
