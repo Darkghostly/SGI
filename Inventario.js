@@ -1075,10 +1075,28 @@ const servidor = http.createServer(async (req, res) => {
     }
 
     // ── GET /api/movimentacoes — lista todas as movs. ──────
-    if (pathname === '/api/movimentacoes' && metodo === 'GET') {
-      const movs = await listarMovimentacoes();
-      return responderJSON(res, 200, movs);
-    }
+    // NOVA ROTA: GET /api/produtos/:id (Buscar apenas um item específico sem idRegex)
+        if (path.startsWith('/api/produtos/') && req.method === 'GET') {
+            // Divide a URL por '/' e pega o último elemento (que é o ID)
+            const partes = path.split('/');
+            const id = partes[partes.length - 1];
+
+            try {
+                // Executa a busca no banco de dados filtrando pelo ID extraído
+                const [rows] = await db.execute('SELECT * FROM produtos WHERE id = ?', [id]);
+                
+                if (rows.length > 0) {
+                    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+                    return res.end(JSON.stringify(rows[0]));
+                } else {
+                    res.writeHead(404, { 'Content-Type': 'application/json; charset=utf-8' });
+                    return res.end(JSON.stringify({ erro: 'Produto não encontrado no banco.' }));
+                }
+            } catch (err) {
+                res.writeHead(500, { 'Content-Type': 'application/json; charset=utf-8' });
+                return res.end(JSON.stringify({ erro: 'Erro interno ao buscar o produto.' }));
+            }
+        }
 
     // ── POST /api/movimentacoes — registra entrada/saída ───
     if (pathname === '/api/movimentacoes' && metodo === 'POST') {
