@@ -1,0 +1,43 @@
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model Produto {
+  id            Int            @id @default(autoincrement())
+  nome          String
+  categoria     String
+  quantidade    Int
+  preco         Float
+  validade      String?
+  criadoEm      String
+  movimentacoes Movimentacao[]
+
+  @@map("produtos")
+}
+
+model Movimentacao {
+  id         Int     @id @default(autoincrement())
+  produtoId  Int
+  tipo       String
+  quantidade Int
+  observacao String
+  data       String
+  produto    Produto @relation(fields: [produtoId], references: [id], onDelete: Cascade)
+
+  @@map("movimentacoes")
+}
+
+model Usuario {
+  id        Int      @id @default(autoincrement())
+  nome      String
+  email     String   @unique
+  senhaHash String
+  role      String   @default("ADMIN")
+
+  @@map("usuarios")
+}
